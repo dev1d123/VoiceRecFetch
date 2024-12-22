@@ -1,10 +1,14 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { BrowserRouter as Router, Route, Routes, Link } from "react-router-dom";
+import axios from 'axios';
 
 const VoiceRecognition = () => {
     const [isListening, setIsListening] = useState(false);
     const [transcript, setTranscript] = useState("");
     const recognitionRef = useRef(null);
+    const [viviendas, setViviendas] = useState([]); // Datos de todas las viviendas
+    const [filteredResults, setFilteredResults] = useState([]); // Resultados filtrados
+    const [error, setError] = useState(null);
 
     // Inicializar SpeechRecognition
     if (!recognitionRef.current && 'webkitSpeechRecognition' in window) {
@@ -47,6 +51,124 @@ const VoiceRecognition = () => {
         }
     };
 
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+
+        if (!transcript.trim()) {
+            alert("Por favor, introduzca una consulta.");
+            return;
+        }
+
+        try {
+            const queryPatterns = [
+                { 
+                    id: 1, 
+                    pattern: /busco tipo (\w+)/i, 
+                    filter: (viviendas, values) => viviendas.filter(item => item.tipo.toLowerCase() === values[0].toLowerCase()) 
+                },
+                { 
+                    id: 2, 
+                    pattern: /busco zona (\w+)/i, 
+                    filter: (viviendas, values) => viviendas.filter(item => item.zona.toLowerCase() === values[0].toLowerCase()) 
+                },
+                { 
+                    id: 3, 
+                    pattern: /busco tipo (\w+) zona (\w+)/i, 
+                    filter: (viviendas, values) => viviendas.filter(item => 
+                        item.tipo.toLowerCase() === values[0].toLowerCase() && 
+                        item.zona.toLowerCase() === values[1].toLowerCase()) 
+                },
+                { 
+                    id: 4, 
+                    pattern: /busco tipo (\w+) numero dormitorios (\d+) zona (\w+)/i, 
+                    filter: (viviendas, values) => viviendas.filter(item => 
+                        item.tipo.toLowerCase() === values[0].toLowerCase() && 
+                        item.dormitorios === parseInt(values[1]) && 
+                        item.zona.toLowerCase() === values[2].toLowerCase()) 
+                },
+                { 
+                    id: 5, 
+                    pattern: /deseo una (\w+) en (\w+)/i, 
+                    filter: (viviendas, values) => viviendas.filter(item => 
+                        item.tipo.toLowerCase() === values[0].toLowerCase() && 
+                        (item.zona.toLowerCase() === values[1].toLowerCase() || item.zona.toLowerCase() === values[0].toLowerCase())) 
+                },
+                { 
+                    id: 6, 
+                    pattern: /deseo un (\w+) con más de (\d+) dormitorios en (el centro)/i, 
+                    filter: (viviendas, values) => viviendas.filter(item => 
+                        item.tipo.toLowerCase() === values[0].toLowerCase() && 
+                        item.dormitorios > parseInt(values[1]) && 
+                        item.zona.toLowerCase() === values[2].toLowerCase()) 
+                },
+                { 
+                    id: 7, 
+                    pattern: /deseo una (\w+) de más de (\d+) metros cuadrados/i, 
+                    filter: (viviendas, values) => viviendas.filter(item => 
+                        item.tipo.toLowerCase() === values[0].toLowerCase() && 
+                        item.tamaño > parseInt(values[1])) 
+                },
+                { 
+                    id: 8, 
+                    pattern: /deseo un (\w+) barato/i, 
+                    filter: (viviendas, values) => {
+                        const precioBarato = 200000; // Definimos "barato" como viviendas con precio menor a 200000
+                        return viviendas.filter(item => 
+                            item.tipo.toLowerCase() === values[0].toLowerCase() && 
+                            parseFloat(item.precio) < precioBarato
+                        );
+                    } 
+                },
+                { 
+                    id: 9, 
+                    pattern: /deseo un (\w+) en (\w+) con (\w+)/i, 
+                    filter: (viviendas, values) => viviendas.filter(item => 
+                        item.tipo.toLowerCase() === values[0].toLowerCase() && 
+                        item.zona.toLowerCase() === values[1].toLowerCase() && 
+                        item.extras.toLowerCase().includes(values[2].toLowerCase())
+                    )
+                }
+            ];
+                     
+            let matchedQuery = null;
+
+            for (const query of queryPatterns) {
+                const match = transcript.match(query.pattern);
+                if (match) {
+                    matchedQuery = { ...query, values: match.slice(1) }; // Extrae valores capturados
+                    break;
+                }
+            }
+            
+            if (!matchedQuery) {
+                console.log("No se encontró un patrón que coincida con la consulta.");
+                return;
+            }
+
+            const filteredData = matchedQuery.filter(viviendas, matchedQuery.values);
+            console.log("Datos filtrados:", filteredData);
+
+
+
+        } catch (err) {
+            console.error(err);
+        }
+    };
+    useEffect(() => {
+        const fetchViviendas = async () => {
+            try {
+                const response = await axios.get("http://127.0.0.1:8000/api/viviendas/"); // URL de tu API Django
+                setViviendas(response.data);
+                console.log(response);
+            } catch (err) {
+                console.error(err);
+                setError("Hubo un error al cargar los datos. Intente más tarde.");
+            }
+        };
+        fetchViviendas();
+    }, []);
+
+
     return (
         <Router>
             <div>
@@ -85,6 +207,8 @@ const VoiceRecognition = () => {
                                     Utiliza nuestra herramienta de reconocimiento de voz para buscar
                                     viviendas de forma rápida.
                                 </p>
+
+                                
                                 <Link to="/voice">
                                     <button
                                         style={{
@@ -112,17 +236,8 @@ const VoiceRecognition = () => {
                                 <h4>Introduzca la consulta</h4>
 
                                 <form
-                                    onSubmit={(e) => {
-                                        e.preventDefault();
+                                    onSubmit={handleSubmit}
 
-
-                                        
-                                        alert(`Búsqueda realizada: ${transcript}`);
-
-
-
-
-                                    }}
                                     style={{
                                         display: "flex",
                                         flexDirection: "column",
@@ -177,8 +292,10 @@ const VoiceRecognition = () => {
                                         Buscar vivienda
                                     </button>
                                 </form>
+                                
                             </div>
                         }
+
                     />
 
                 </Routes>
